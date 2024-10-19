@@ -3,10 +3,12 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"  // เพิ่ม fmt สำหรับการ Debug
+	"fmt" // เพิ่ม fmt สำหรับการ Debug
 	"net/http"
+	"strings"
 
 	"delivery_webservice/model"
+
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -18,6 +20,18 @@ func RegisterRider(db *sql.DB) http.HandlerFunc {
 			http.Error(w, "Invalid input", http.StatusBadRequest)
 			return
 		}
+
+		// Check for empty fields
+		if req.Name == "" || req.PhoneNumber == "" || req.LicensePlate == "" || req.Password == "" {
+			http.Error(w, "Fields cannot be empty", http.StatusBadRequest)
+			return
+		}
+
+		// Trim spaces
+		req.PhoneNumber = trimSpace(req.PhoneNumber)
+		req.Name = trimSpace(req.Name)
+		req.LicensePlate = trimSpace(req.LicensePlate)
+		req.Password = trimSpace(req.Password)
 
 		// Check if phone number already exists in Users or Riders table
 		if phoneExists(db, req.PhoneNumber) {
@@ -60,7 +74,7 @@ func phoneExists(db *sql.DB, phone string) bool {
 	`
 	err := db.QueryRow(query, phone, phone).Scan(&exists)
 	if err != nil {
-		fmt.Printf("Error checking phone number: %v\n", err)  // แสดง error ใน console สำหรับการ Debug
+		fmt.Printf("Error checking phone number: %v\n", err) // แสดง error ใน console สำหรับการ Debug
 		return false
 	}
 	return exists
@@ -70,4 +84,9 @@ func phoneExists(db *sql.DB, phone string) bool {
 func hashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
 	return string(bytes), err
+}
+
+// trimSpace removes leading and trailing spaces from a string
+func trimSpace(s string) string {
+	return strings.TrimSpace(s)
 }
