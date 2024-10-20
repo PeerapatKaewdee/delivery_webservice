@@ -12,7 +12,7 @@ func InitRoutes(db *sql.DB) *mux.Router {
 	r := mux.NewRouter()
 
 	// Example route
-	r.HandleFunc("/api/example", func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Hello, World!"))
 	}).Methods("GET")
 
