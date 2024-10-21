@@ -3,7 +3,6 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
-	"log"
 	"net/http"
 	"strings"
 
@@ -42,7 +41,6 @@ func LoginUserOrRider(db *sql.DB) http.HandlerFunc {
 
 		// Compare the provided password with the stored hashed password
 		if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(req.Password)); err != nil {
-			log.Printf("Password mismatch. DB Hashed Password: %s, Entered Password: %s", hashedPassword, req.Password)
 			http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 			return
 		}
@@ -55,10 +53,12 @@ func LoginUserOrRider(db *sql.DB) http.HandlerFunc {
 
 		// Sending back ID and type information in response
 		response := map[string]interface{}{
-			"id":   id,       // Either "uid" or "rid"
-			"type": userType, // Either "rider" or "user"
+			"message": "Login successful",
+			"id":      id,      // Either "uid" or "rid"
+			"type":    userType, // Either "rider" or "user"
 		}
 
+		w.WriteHeader(http.StatusOK) // Set the HTTP status code to 200 OK
 		json.NewEncoder(w).Encode(response)
 	}
 }
@@ -66,27 +66,27 @@ func LoginUserOrRider(db *sql.DB) http.HandlerFunc {
 // getUserOrRiderDetails retrieves the correct ID, hashed password, and user type for a given phone number
 func getUserOrRiderDetails(db *sql.DB, phone string) (bool, int, string, error) {
 	var hashedPassword string
-	var isRider bool
 	var id int
 
-	log.Printf("Looking for phone number: %s", phone) // Log phone number
-
 	// Check in Riders table
-	query := "SELECT rid, password, 1 FROM Riders WHERE phone_number = ?"
-	err := db.QueryRow(query, phone).Scan(&id, &hashedPassword, &isRider)
+	query := "SELECT rid, password FROM Riders WHERE phone_number = ?"
+	err := db.QueryRow(query, phone).Scan(&id, &hashedPassword)
 	if err == nil {
-		log.Printf("Found Rider with ID %d", id) // Log found Rider
 		return true, id, hashedPassword, nil // Found in Riders
+	} else if err != sql.ErrNoRows {
+		// Handle unexpected error
+		return false, 0, "", err 
 	}
 
 	// Check in Users table
-	query = "SELECT uid, password, 0 FROM Users WHERE phone_number = ?"
-	err = db.QueryRow(query, phone).Scan(&id, &hashedPassword, &isRider)
+	query = "SELECT uid, password FROM Users WHERE phone_number = ?"
+	err = db.QueryRow(query, phone).Scan(&id, &hashedPassword)
 	if err == nil {
-		log.Printf("Found User with ID %d", id) // Log found User
 		return false, id, hashedPassword, nil // Found in Users
+	} else if err != sql.ErrNoRows {
+		// Handle unexpected error
+		return false, 0, "", err
 	}
 
-	log.Printf("No match for phone number: %s", phone) // Log no match
-	return false, 0, "", err // Not found
+	return false, 0, "", nil // Not found
 }
