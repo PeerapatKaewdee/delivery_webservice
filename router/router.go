@@ -20,6 +20,12 @@ func InitRoutes(db *sql.DB) *mux.Router {
 	r.HandleFunc("/api/rider/register", api.RegisterRider(db)).Methods("POST")
 	r.HandleFunc("/api/auth/login", api.LoginUserOrRider(db)).Methods("POST")
 	r.HandleFunc("/api/user/register", api.RegisterUser(db)).Methods("POST")
+	// Route สำหรับการสร้างการจัดส่ง
+	r.HandleFunc("/shipments", api.CreateShipment(db)).Methods("POST")       // สร้างการจัดส่งใหม่
+    r.HandleFunc("/shipments", api.UpdateShipment(db)).Methods("PUT")        // อัปเดตการจัดส่ง
+    r.HandleFunc("/shipments", api.GetShipment(db)).Methods("GET")  
+// Route สำหรับการสร้าง shipment ใหม่
+
 
 	return r
 }
