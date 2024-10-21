@@ -18,6 +18,8 @@ func InitRoutes(db *sql.DB) *mux.Router {
 
 	// Register rider route
 	r.HandleFunc("/api/rider/register", api.RegisterRider(db)).Methods("POST")
+	r.HandleFunc("/api/auth/login", api.LoginUserOrRider(db)).Methods("POST")
+	r.HandleFunc("/api/user/register",api.RegisterUser(db)).Methods("POST")
 
 	return r
 }
