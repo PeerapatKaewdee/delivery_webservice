@@ -8,7 +8,7 @@ import (
 	"net/http"
 )
 
-// RiderRegistrationRequest เป็นโครงสร้างสำหรับการลงทะเบียนไรเดอร์
+// RiderRegistrationRequest is the structure for rider registration
 type RiderRegistrationRequest struct {
 	PhoneNumber  string `json:"phone_number"`
 	Password     string `json:"password"`
@@ -17,59 +17,70 @@ type RiderRegistrationRequest struct {
 	LicensePlate string `json:"license_plate"`
 }
 
-// RegisterRider ฟังก์ชันสำหรับจัดการการลงทะเบียนไรเดอร์
+// RegisterRider handles rider registration
 func RegisterRider(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if db == nil {
-			http.Error(w, "การเชื่อมต่อฐานข้อมูลไม่พร้อมใช้งาน", http.StatusInternalServerError)
+			http.Error(w, "Database connection not available", http.StatusInternalServerError)
 			return
 		}
 
 		var req RiderRegistrationRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "ข้อมูลไม่ถูกต้อง", http.StatusBadRequest)
+			http.Error(w, "Invalid data", http.StatusBadRequest)
 			return
 		}
 
-		// ตรวจสอบฟิลด์ที่ว่างเปล่า
+		// Check for empty fields
 		if req.Name == "" || req.PhoneNumber == "" || req.Password == "" || req.LicensePlate == "" {
-			http.Error(w, "ฟิลด์ไม่สามารถว่างเปล่าได้", http.StatusBadRequest)
+			http.Error(w, "Fields cannot be empty", http.StatusBadRequest)
 			return
 		}
 
-		// ตัดช่องว่าง
+		// Trim whitespace
 		req.PhoneNumber = trimSpace(req.PhoneNumber)
 		req.Name = trimSpace(req.Name)
 		req.Password = trimSpace(req.Password)
 		req.LicensePlate = trimSpace(req.LicensePlate)
 
-		// ตรวจสอบหมายเลขโทรศัพท์ที่มีอยู่แล้ว
+		// Check if phone number already exists
 		if phoneExists(db, req.PhoneNumber) {
-			http.Error(w, "หมายเลขโทรศัพท์มีอยู่แล้ว", http.StatusConflict)
+			http.Error(w, "Phone number already exists", http.StatusConflict)
 			return
 		}
 
-		// แฮชรหัสผ่าน
+		// Hash password
 		hashedPassword, err := hashPassword(req.Password)
 		if err != nil {
-			log.Println("เกิดข้อผิดพลาดในการแฮชรหัสผ่าน:", err)
-			http.Error(w, "เกิดข้อผิดพลาดในการแฮชรหัสผ่าน", http.StatusInternalServerError)
+			log.Println("Error hashing password:", err)
+			http.Error(w, "Error hashing password", http.StatusInternalServerError)
 			return
 		}
 
-		// แทรกไรเดอร์ใหม่ลงในฐานข้อมูล
-		_, err = db.Exec(
+		// Insert new rider into the database and retrieve the inserted ID
+		result, err := db.Exec(
 			"INSERT INTO Riders (phone_number, password, name, profile_image, license_plate) VALUES (?, ?, ?, ?, ?)",
 			req.PhoneNumber, hashedPassword, req.Name, req.ProfileImage, req.LicensePlate,
 		)
 		if err != nil {
-			log.Println("เกิดข้อผิดพลาดในการลงทะเบียนไรเดอร์:", err)
-			http.Error(w, fmt.Sprintf("เกิดข้อผิดพลาดในการลงทะเบียนไรเดอร์: %v", err), http.StatusInternalServerError)
+			log.Println("Error registering rider:", err)
+			http.Error(w, fmt.Sprintf("Error registering rider: %v", err), http.StatusInternalServerError)
 			return
 		}
 
-		// ส่งกลับคำตอบสำเร็จ
+		// Get the ID of the inserted rider
+		riderID, err := result.LastInsertId()
+		if err != nil {
+			log.Println("Error retrieving last insert ID:", err)
+			http.Error(w, "Error retrieving rider ID", http.StatusInternalServerError)
+			return
+		}
+
+		// Send back success response with rider ID
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"message": "ลงทะเบียนไรเดอร์สำเร็จ"})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"message": "Rider registration successful",
+			"id":      riderID,
+		})
 	}
 }

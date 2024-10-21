@@ -8,7 +8,7 @@ import (
 	"net/http"
 )
 
-// UserRegistrationRequest เป็นโครงสร้างสำหรับการลงทะเบียนผู้ใช้
+// UserRegistrationRequest is the structure for user registration
 type UserRegistrationRequest struct {
 	PhoneNumber  string `json:"phone_number"`
 	Password     string `json:"password"`
@@ -18,60 +18,77 @@ type UserRegistrationRequest struct {
 	GpsLocation  string `json:"gps_location"`
 }
 
-// RegisterUser ฟังก์ชันสำหรับจัดการการลงทะเบียนผู้ใช้
+// RegisterUser handles user registration
 func RegisterUser(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if db == nil {
-			http.Error(w, "การเชื่อมต่อฐานข้อมูลไม่พร้อมใช้งาน", http.StatusInternalServerError)
+			http.Error(w, "Database connection not available", http.StatusInternalServerError)
 			return
 		}
 
 		var req UserRegistrationRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "ข้อมูลไม่ถูกต้อง", http.StatusBadRequest)
+			http.Error(w, "Invalid data", http.StatusBadRequest)
 			return
 		}
 
-		// ตรวจสอบฟิลด์ที่ว่างเปล่า
+		// Check for empty fields
 		if req.Name == "" || req.PhoneNumber == "" || req.Password == "" {
-			http.Error(w, "ฟิลด์ไม่สามารถว่างเปล่าได้", http.StatusBadRequest)
+			http.Error(w, "Fields cannot be empty", http.StatusBadRequest)
 			return
 		}
 
-		// ตัดช่องว่าง
+		// Ensure at least one of Address or GpsLocation is provided
+		if req.Address == "" && req.GpsLocation == "" {
+			http.Error(w, "Either address or GPS location must be provided", http.StatusBadRequest)
+			return
+		}
+
+		// Trim whitespace
 		req.PhoneNumber = trimSpace(req.PhoneNumber)
 		req.Name = trimSpace(req.Name)
 		req.Password = trimSpace(req.Password)
 		req.Address = trimSpace(req.Address)
 		req.GpsLocation = trimSpace(req.GpsLocation)
 
-		// ตรวจสอบหมายเลขโทรศัพท์ที่มีอยู่แล้ว
+		// Check if phone number already exists
 		if phoneExists(db, req.PhoneNumber) {
-			http.Error(w, "หมายเลขโทรศัพท์มีอยู่แล้ว", http.StatusConflict)
+			http.Error(w, "Phone number already exists", http.StatusConflict)
 			return
 		}
 
-		// แฮชรหัสผ่าน
+		// Hash password
 		hashedPassword, err := hashPassword(req.Password)
 		if err != nil {
-			log.Println("เกิดข้อผิดพลาดในการแฮชรหัสผ่าน:", err)
-			http.Error(w, "เกิดข้อผิดพลาดในการแฮชรหัสผ่าน", http.StatusInternalServerError)
+			log.Println("Error hashing password:", err)
+			http.Error(w, "Error hashing password", http.StatusInternalServerError)
 			return
 		}
 
-		// แทรกผู้ใช้ใหม่ลงในฐานข้อมูล
-		_, err = db.Exec(
+		// Insert new user into the database and retrieve the inserted ID
+		result, err := db.Exec(
 			"INSERT INTO Users (phone_number, password, name, profile_image, address, gps_location) VALUES (?, ?, ?, ?, ?, ST_GeomFromText(?))",
 			req.PhoneNumber, hashedPassword, req.Name, req.ProfileImage, req.Address, req.GpsLocation,
 		)
 		if err != nil {
-			log.Println("เกิดข้อผิดพลาดในการลงทะเบียนผู้ใช้:", err)
-			http.Error(w, fmt.Sprintf("เกิดข้อผิดพลาดในการลงทะเบียนผู้ใช้: %v", err), http.StatusInternalServerError)
+			log.Println("Error registering user:", err)
+			http.Error(w, fmt.Sprintf("Error registering user: %v", err), http.StatusInternalServerError)
 			return
 		}
 
-		// ส่งกลับคำตอบสำเร็จ
+		// Get the ID of the inserted user
+		userID, err := result.LastInsertId()
+		if err != nil {
+			log.Println("Error retrieving last insert ID:", err)
+			http.Error(w, "Error retrieving user ID", http.StatusInternalServerError)
+			return
+		}
+
+		// Send back success response with user ID
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"message": "ลงทะเบียนผู้ใช้สำเร็จ"})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"message": "User registration successful",
+			"id":      userID,
+		})
 	}
 }
