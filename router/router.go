@@ -12,7 +12,7 @@ func InitRoutes(db *sql.DB) *mux.Router {
 	r := mux.NewRouter()
 
 	// Example route
-	r.HandleFunc("/api/example", func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Hello, World!"))
 	}).Methods("GET")
 
@@ -23,6 +23,7 @@ func InitRoutes(db *sql.DB) *mux.Router {
 	// Route สำหรับการสร้างการจัดส่ง
 	r.HandleFunc("/create-delivery", api.CreateDelivery(db)).Methods("POST")
 	r.HandleFunc("/search-user", api.SearchReceiverByPhone(db)).Methods("POST")
+	r.HandleFunc("/get/list_user_send/{sender_id}", api.GetDeliveryBySender(db)).Methods("POST")
 
 	return r
 }
