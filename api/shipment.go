@@ -1,110 +1,102 @@
 package api
 
 import (
-    "database/sql"
-    "encoding/json"
-    "net/http"
+	"database/sql"
+	"encoding/json"
+	"net/http"
+	"strings"
 )
 
-// Shipment represents the shipment structure
-type Shipment struct {
-    ID             int    `json:"id"`
-    OrderID        int    `json:"order_id"`
-    TrackingNumber string `json:"tracking_number"`
-    Status         string `json:"status"` // e.g. "pending", "shipped", "delivered"
-    Carrier        string `json:"carrier"` // e.g. "UPS", "FedEx"
+// DeliveryRequest แสดงโครงสร้างข้อมูลการจัดส่ง
+type DeliveryRequest struct {
+	SenderID      int            `json:"sender_id"`
+	ReceiverPhone string         `json:"receiver_phone,omitempty"` // Optional field
+	Items         []ShipmentItem `json:"items"`
 }
 
-// CreateShipmentRequest represents the request structure for creating a shipment
-type CreateShipmentRequest struct {
-    OrderID        int    `json:"order_id"`
-    TrackingNumber string `json:"tracking_number"`
-    Status         string `json:"status"`
-    Carrier        string `json:"carrier"`
+// ShipmentItem แสดงโครงสร้างข้อมูลสินค้าในการจัดส่ง
+type ShipmentItem struct {
+	Description string `json:"description"`
+	Image       string `json:"image"`
 }
 
-// CreateShipment handles the creation of a new shipment
-func CreateShipment(db *sql.DB) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
-        var req CreateShipmentRequest
-        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-            http.Error(w, "Invalid input", http.StatusBadRequest)
-            return
-        }
+// CreateDelivery สร้างรายการจัดส่งใหม่
+func CreateDelivery(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req DeliveryRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid input", http.StatusBadRequest)
+			return
+		}
 
-        // Insert shipment into the database
-        query := "INSERT INTO Shipments (order_id, tracking_number, status, carrier) VALUES (?, ?, ?, ?)"
-        result, err := db.Exec(query, req.OrderID, req.TrackingNumber, req.Status, req.Carrier)
-        if err != nil {
-            http.Error(w, "Failed to create shipment", http.StatusInternalServerError)
-            return
-        }
+		// Trim the receiver phone if provided
+		req.ReceiverPhone = strings.TrimSpace(req.ReceiverPhone)
 
-        // Get the ID of the newly created shipment
-        shipmentID, err := result.LastInsertId()
-        if err != nil {
-            http.Error(w, "Failed to retrieve shipment ID", http.StatusInternalServerError)
-            return
-        }
+		// Check if items are provided
+		if len(req.Items) == 0 {
+			http.Error(w, "Items cannot be empty", http.StatusBadRequest)
+			return
+		}
 
-        // Respond with the created shipment information
-        response := Shipment{
-            ID:             int(shipmentID),
-            OrderID:        req.OrderID,
-            TrackingNumber: req.TrackingNumber,
-            Status:         req.Status,
-            Carrier:        req.Carrier,
-        }
+		var receiverID int
+		if req.ReceiverPhone != "" {
+			// Only check for receiver if phone is provided
+			query := "SELECT uid FROM Users WHERE phone_number = ?"
+			err := db.QueryRow(query, req.ReceiverPhone).Scan(&receiverID)
+			if err != nil {
+				http.Error(w, "Receiver not found", http.StatusNotFound)
+				return
+			}
+		} else {
+			receiverID = 0 // หรือใช้ค่า default อื่น ๆ ถ้าต้องการ
+		}
 
-        w.WriteHeader(http.StatusCreated) // Set the HTTP status code to 201 Created
-        json.NewEncoder(w).Encode(response)
-    }
-}
+		// เริ่มต้น Transaction
+		tx, err := db.Begin()
+		if err != nil {
+			http.Error(w, "Failed to begin transaction", http.StatusInternalServerError)
+			return
+		}
 
-// GetShipment retrieves a shipment by its ID
-func GetShipment(db *sql.DB) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
-        id := r.URL.Query().Get("id")
-        if id == "" {
-            http.Error(w, "Missing shipment ID", http.StatusBadRequest)
-            return
-        }
+		// สร้าง Shipment
+		insertQuery := "INSERT INTO Shipments (sender_id, receiver_id, status) VALUES (?, ?, ?)"
+		result, err := tx.Exec(insertQuery, req.SenderID, receiverID, 1) // สถานะ 1: รอ Rider
+		if err != nil {
+			tx.Rollback()
+			http.Error(w, "Failed to create shipment", http.StatusInternalServerError)
+			return
+		}
 
-        var shipment Shipment
-        query := "SELECT id, order_id, tracking_number, status, carrier FROM Shipments WHERE id = ?"
-        err := db.QueryRow(query, id).Scan(&shipment.ID, &shipment.OrderID, &shipment.TrackingNumber, &shipment.Status, &shipment.Carrier)
-        if err != nil {
-            if err == sql.ErrNoRows {
-                http.Error(w, "Shipment not found", http.StatusNotFound)
-            } else {
-                http.Error(w, "Failed to retrieve shipment", http.StatusInternalServerError)
-            }
-            return
-        }
+		// รับ shipment_id ที่สร้างขึ้น
+		shipmentID, err := result.LastInsertId()
+		if err != nil {
+			tx.Rollback()
+			http.Error(w, "Failed to retrieve shipment ID", http.StatusInternalServerError)
+			return
+		}
 
-        w.WriteHeader(http.StatusOK)
-        json.NewEncoder(w).Encode(shipment)
-    }
-}
+		// สร้าง Shipment Items
+		for _, item := range req.Items {
+			insertItemQuery := "INSERT INTO Shipment_Items (shipment_id, description, image) VALUES (?, ?, ?)"
+			_, err := tx.Exec(insertItemQuery, shipmentID, item.Description, item.Image)
+			if err != nil {
+				tx.Rollback()
+				http.Error(w, "Failed to create shipment item", http.StatusInternalServerError)
+				return
+			}
+		}
 
-// UpdateShipment updates the details of a shipment
-func UpdateShipment(db *sql.DB) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
-        var shipment Shipment
-        if err := json.NewDecoder(r.Body).Decode(&shipment); err != nil {
-            http.Error(w, "Invalid input", http.StatusBadRequest)
-            return
-        }
+		// ยืนยัน Transaction
+		if err := tx.Commit(); err != nil {
+			http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
+			return
+		}
 
-        // Update the shipment in the database
-        query := "UPDATE Shipments SET tracking_number = ?, status = ?, carrier = ? WHERE id = ?"
-        _, err := db.Exec(query, shipment.TrackingNumber, shipment.Status, shipment.Carrier, shipment.ID)
-        if err != nil {
-            http.Error(w, "Failed to update shipment", http.StatusInternalServerError)
-            return
-        }
+		response := map[string]string{
+			"message": "Delivery created successfully",
+		}
 
-        w.WriteHeader(http.StatusOK)
-        json.NewEncoder(w).Encode(shipment)
-    }
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(response)
+	}
 }
