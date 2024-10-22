@@ -34,7 +34,7 @@ type ShipmentDetail struct {
 	ShipmentID int            `json:"shipment_id"`
 	SenderID   string         `json:"sender_id"`
 	ReceiverID string         `json:"receiver_id"`
-	RiderID    string         `json:"rider_id"`
+	RiderID    *string        `json:"rider_id"` // ใช้ *string แทน
 	Status     string         `json:"status"`
 	Items      []ShipmentItem `json:"items"`
 }
@@ -138,7 +138,7 @@ func GetDeliveryBySender(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// Query ข้อมูลการจัดส่งพร้อมรายการสินค้าที่เกี่ยวข้องกับ sender_id
+		// Query ข้อมูลการจัดส่ง
 		query := `
            SELECT 
                 s.shipments, 
@@ -159,9 +159,7 @@ func GetDeliveryBySender(db *sql.DB) http.HandlerFunc {
                 s.sender_id = ?
         `
 
-		// Prepare the response structure
 		var deliveries []ShipmentDetail
-
 		rows, err := db.Query(query, senderID)
 		if err != nil {
 			http.Error(w, "Failed to retrieve delivery data", http.StatusInternalServerError)
@@ -169,23 +167,30 @@ func GetDeliveryBySender(db *sql.DB) http.HandlerFunc {
 		}
 		defer rows.Close()
 
-		// ใช้ map เก็บข้อมูลรายการจัดส่งที่มี shipments เดียวกัน
 		deliveriesMap := make(map[int]*ShipmentDetail)
 
 		for rows.Next() {
 			var shipmentID int
 			var delivery ShipmentDetail
 			var item ShipmentItem
+			var riderID sql.NullString // ใช้ sql.NullString เพื่อจัดการกับ NULL
 
-			// แก้ไขการสแกนให้ตรงตามลำดับ
-			err := rows.Scan(&shipmentID, &delivery.SenderID, &delivery.ReceiverID, &delivery.RiderID, &delivery.Status, &item.IID, &item.Description, &item.Image)
+			// สแกนค่าจากฐานข้อมูล
+			err := rows.Scan(&shipmentID, &delivery.SenderID, &delivery.ReceiverID, &riderID, &delivery.Status, &item.IID, &item.Description, &item.Image)
 			if err != nil {
 				log.Printf("Error scanning shipment data: %v", err)
 				http.Error(w, "Failed to scan shipment data", http.StatusInternalServerError)
 				return
 			}
 
-			// เช็คว่ามี delivery ของ shipments นี้แล้วหรือยัง ถ้ามีแล้วให้เพิ่ม items
+			// ตรวจสอบค่า riderID ว่าเป็น NULL หรือไม่
+			if riderID.Valid {
+				delivery.RiderID = &riderID.String // ถ้ามีค่า ให้กำหนดเป็น pointer
+			} else {
+				delivery.RiderID = nil // ถ้าเป็น NULL ให้กำหนดเป็น nil
+			}
+
+			// เพิ่มข้อมูลการจัดส่ง
 			if existingDelivery, found := deliveriesMap[shipmentID]; found {
 				existingDelivery.Items = append(existingDelivery.Items, item)
 			} else {
@@ -195,12 +200,10 @@ func GetDeliveryBySender(db *sql.DB) http.HandlerFunc {
 			}
 		}
 
-		// เพิ่มข้อมูลจาก map ไปยัง slice ของ deliveries
 		for _, delivery := range deliveriesMap {
 			deliveries = append(deliveries, *delivery)
 		}
 
-		// เช็คว่าพบข้อมูลหรือไม่
 		if len(deliveries) == 0 {
 			http.Error(w, "No shipments found for this sender", http.StatusNotFound)
 			return
@@ -208,6 +211,8 @@ func GetDeliveryBySender(db *sql.DB) http.HandlerFunc {
 
 		// ส่งข้อมูลกลับในรูปแบบ JSON
 		w.Header().Set("Content-Type", "application/json")
+
+		// สร้าง response
 		if err := json.NewEncoder(w).Encode(deliveries); err != nil {
 			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		}
