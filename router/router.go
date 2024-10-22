@@ -21,8 +21,8 @@ func InitRoutes(db *sql.DB) *mux.Router {
 	r.HandleFunc("/api/auth/login", api.LoginUserOrRider(db)).Methods("POST")
 	r.HandleFunc("/api/user/register", api.RegisterUser(db)).Methods("POST")
 	// Route สำหรับการสร้างการจัดส่ง
-	r.HandleFunc("/create-delivery",api.CreateDelivery(db)).Methods("POST")
-
+	r.HandleFunc("/create-delivery", api.CreateDelivery(db)).Methods("POST")
+	r.HandleFunc("/search-user", api.SearchReceiverByPhone(db)).Methods("POST")
 
 	return r
 }
