@@ -16,8 +16,8 @@ func SearchReceiverByPhone(db *sql.DB) http.HandlerFunc {
 		}
 
 		var requestBody struct {
-			Phone   string `json:"phone"`
-			UserID  int    `json:"user_id"` // รับ ID ของผู้ใช้ที่ล็อกอิน
+			Phone  string `json:"phone"`
+			UserID int    `json:"user_id"` // รับ ID ของผู้ใช้ที่ล็อกอิน
 		}
 
 		err := json.NewDecoder(r.Body).Decode(&requestBody)
@@ -32,7 +32,11 @@ func SearchReceiverByPhone(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		query := "SELECT uid, name, phone_number FROM Users WHERE phone_number LIKE ?"
+		query := `
+			SELECT uid, name, phone_number, ST_X(gps_location) AS lat, ST_Y(gps_location) AS lng 
+			FROM Users 
+			WHERE phone_number LIKE ?
+		`
 		rows, err := db.Query(query, phone+"%")
 		if err != nil {
 			http.Error(w, "Failed to search for receiver", http.StatusInternalServerError)
@@ -44,16 +48,18 @@ func SearchReceiverByPhone(db *sql.DB) http.HandlerFunc {
 		for rows.Next() {
 			var receiverID int
 			var receiverName, receiverPhone string
-			if err := rows.Scan(&receiverID, &receiverName, &receiverPhone); err != nil {
+			var lat, lng float64
+			if err := rows.Scan(&receiverID, &receiverName, &receiverPhone, &lat, &lng); err != nil {
 				http.Error(w, "Error scanning row", http.StatusInternalServerError)
 				return
 			}
 			// ตรวจสอบว่าผู้รับเป็นผู้ใช้ที่ล็อกอินหรือไม่
 			if receiverID != requestBody.UserID {
 				users = append(users, map[string]interface{}{
-					"receiver_id":   receiverID,
-					"receiver_name": receiverName,
+					"receiver_id":    receiverID,
+					"receiver_name":  receiverName,
 					"receiver_phone": receiverPhone,
+					"gps_location":   map[string]float64{"lat": lat, "lng": lng},
 				})
 			}
 		}
