@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+
+	"github.com/gorilla/mux"
 )
 
 // RiderRegistrationRequest is the structure for rider registration
 type RiderRegistrationRequest struct {
+	rid          int    `json:"rid"`
 	PhoneNumber  string `json:"phone_number"`
 	Password     string `json:"password"`
 	Name         string `json:"name"`
@@ -82,5 +85,44 @@ func RegisterRider(db *sql.DB) http.HandlerFunc {
 			"message": "Rider registration successful",
 			"id":      riderID,
 		})
+	}
+
+}
+
+// RiderLicensePlateResponse is the structure for the response containing the rider's license plate
+type RiderLicensePlateResponse struct {
+	LicensePlate string `json:"license_plate"`
+}
+
+// GetRider handles fetching rider's license plate information
+func GetRider(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if db == nil {
+			http.Error(w, "Database connection not available", http.StatusInternalServerError)
+			return
+		}
+
+		// Extract rider ID from the URL path (assuming the URL is like /get/rider/{rider_id})
+		vars := mux.Vars(r) // หากใช้ Gorilla Mux
+		riderID := vars["rider_id"]
+
+		// Query the rider's license plate from the database
+		var response RiderLicensePlateResponse
+		err := db.QueryRow("SELECT license_plate FROM Riders WHERE rid = ?", riderID).Scan(
+			&response.LicensePlate,
+		)
+
+		if err == sql.ErrNoRows {
+			http.Error(w, "Rider not found", http.StatusNotFound)
+			return
+		} else if err != nil {
+			log.Println("Error fetching rider:", err)
+			http.Error(w, fmt.Sprintf("Error fetching rider: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Send back the rider's license plate information as JSON
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
 	}
 }
