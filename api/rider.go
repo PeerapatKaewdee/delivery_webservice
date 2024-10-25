@@ -10,9 +10,9 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// RiderRegistrationRequest is the structure for rider registration
+// RiderRegistrationRequest คือโครงสร้างข้อมูลสำหรับการลงทะเบียนผู้ขับขี่
 type RiderRegistrationRequest struct {
-	rid          int    `json:"rid"`
+	Rid          int    `json:"rid"`
 	PhoneNumber  string `json:"phone_number"`
 	Password     string `json:"password"`
 	Name         string `json:"name"`
@@ -20,7 +20,7 @@ type RiderRegistrationRequest struct {
 	LicensePlate string `json:"license_plate"`
 }
 
-// RegisterRider handles rider registration
+// RegisterRider จัดการการลงทะเบียนผู้ขับขี่
 func RegisterRider(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if db == nil {
@@ -34,25 +34,25 @@ func RegisterRider(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// Check for empty fields
+		// ตรวจสอบฟิลด์ที่ว่าง
 		if req.Name == "" || req.PhoneNumber == "" || req.Password == "" || req.LicensePlate == "" {
 			http.Error(w, "Fields cannot be empty", http.StatusBadRequest)
 			return
 		}
 
-		// Trim whitespace
+		// ตัดช่องว่าง
 		req.PhoneNumber = trimSpace(req.PhoneNumber)
 		req.Name = trimSpace(req.Name)
 		req.Password = trimSpace(req.Password)
 		req.LicensePlate = trimSpace(req.LicensePlate)
 
-		// Check if phone number already exists
+		// ตรวจสอบหมายเลขโทรศัพท์
 		if phoneExists(db, req.PhoneNumber) {
 			http.Error(w, "Phone number already exists", http.StatusConflict)
 			return
 		}
 
-		// Hash password
+		// แฮชรหัสผ่าน
 		hashedPassword, err := hashPassword(req.Password)
 		if err != nil {
 			log.Println("Error hashing password:", err)
@@ -60,34 +60,37 @@ func RegisterRider(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// Insert new rider into the database and retrieve the inserted ID
-		result, err := db.Exec(
-			"INSERT INTO Riders (phone_number, password, name, profile_image, license_plate) VALUES (?, ?, ?, ?, ?)",
-			req.PhoneNumber, hashedPassword, req.Name, req.ProfileImage, req.LicensePlate,
-		)
-		if err != nil {
-			log.Println("Error registering rider:", err)
-			http.Error(w, fmt.Sprintf("Error registering rider: %v", err), http.StatusInternalServerError)
-			return
-		}
+		// แทรกผู้ขับขี่ใหม่ลงในฐานข้อมูล
+result, err := db.Exec(
+	"INSERT INTO Riders (phone_number, password, name, profile_image, license_plate) VALUES (?, ?, ?, ?, ?)",
+	req.PhoneNumber, hashedPassword, req.Name, req.ProfileImage, req.LicensePlate,
+)
 
-		// Get the ID of the inserted rider
-		riderID, err := result.LastInsertId()
-		if err != nil {
-			log.Println("Error retrieving last insert ID:", err)
-			http.Error(w, "Error retrieving rider ID", http.StatusInternalServerError)
-			return
-		}
-
-		// Send back success response with rider ID
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"message": "Rider registration successful",
-			"id":      riderID,
-		})
-	}
-
+// ตรวจสอบข้อผิดพลาด
+if err != nil {
+	log.Println("Error registering rider:", err)
+	http.Error(w, fmt.Sprintf("Error registering rider: %v", err), http.StatusInternalServerError)
+	return
 }
+
+// ดึง ID ของผู้ขับขี่ที่ถูกสร้างขึ้นมาใหม่ (ถ้าตารางมีการกำหนด auto-increment)
+riderID, err := result.LastInsertId()
+if err != nil {
+	log.Println("Error retrieving last insert ID:", err)
+	http.Error(w, fmt.Sprintf("Error retrieving last insert ID: %v", err), http.StatusInternalServerError)
+	return
+}
+
+// ส่งกลับข้อความยืนยันพร้อม ID ของผู้ขับขี่
+w.WriteHeader(http.StatusCreated)
+json.NewEncoder(w).Encode(map[string]interface{}{
+	"message":   "Rider registration successful",
+	"rider_id":  riderID, // ส่งกลับ ID ของผู้ขับขี่ใหม่
+})
+
+	}
+}
+
 
 // RiderLicensePlateResponse is the structure for the response containing the rider's license plate
 type RiderLicensePlateResponse struct {

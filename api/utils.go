@@ -16,7 +16,9 @@ func trimSpace(s string) string {
 // phoneExists ตรวจสอบว่าหมายเลขโทรศัพท์มีอยู่ในตาราง Users หรือ Riders หรือไม่
 func phoneExists(db *sql.DB, phone string) bool {
 	var exists bool
-	query := "SELECT EXISTS(SELECT 1 FROM Users WHERE phone_number = ?) UNION SELECT EXISTS(SELECT 1 FROM Riders WHERE phone_number = ?)"
+	query := `
+		SELECT EXISTS(SELECT 1 FROM Users WHERE phone_number = ?) 
+		OR EXISTS(SELECT 1 FROM Riders WHERE phone_number = ?)`
 	err := db.QueryRow(query, phone, phone).Scan(&exists)
 	if err != nil {
 		log.Printf("เกิดข้อผิดพลาดในการตรวจสอบหมายเลขโทรศัพท์: %v\n", err)
